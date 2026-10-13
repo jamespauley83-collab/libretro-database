@@ -10,6 +10,7 @@ import html
 import os
 import posixpath
 from http.server import HTTPServer, SimpleHTTPRequestHandler
+from urllib.parse import quote, unquote, urlsplit
 
 REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 PORT = int(os.environ.get("PORT", "3000"))
@@ -20,6 +21,14 @@ class DatabaseHandler(SimpleHTTPRequestHandler):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=REPO_ROOT, **kwargs)
+
+    def send_head(self):
+        # Never expose .git or other hidden files and folders.
+        parts = unquote(urlsplit(self.path).path).split("/")
+        if any(part.startswith(".") and part not in (".", "..") for part in parts) or ".." in parts:
+            self.send_error(404, "File not found")
+            return None
+        return super().send_head()
 
     def list_directory(self, path):
         """Override to produce a friendlier HTML listing."""
@@ -41,6 +50,8 @@ class DatabaseHandler(SimpleHTTPRequestHandler):
                 '<li><a href="../">../</a></li>'
             )
         for name in entries:
+            if name.startswith("."):
+                continue
             full = os.path.join(path, name)
             href = name
             if os.path.isdir(full):
@@ -59,7 +70,7 @@ class DatabaseHandler(SimpleHTTPRequestHandler):
                 }.get(ext, "\U0001F4C4")
             rows.append(
                 f'<li><span class="icon">{icon}</span> '
-                f'<a href="{html.escape(href)}">{html.escape(label)}</a></li>'
+                f'<a href="{html.escape(quote(href))}">{html.escape(label)}</a></li>'
             )
 
         body = f"""<!DOCTYPE html>
@@ -109,10 +120,6 @@ class DatabaseHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(encoded)
         return None
-
-    def end_headers(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        super().end_headers()
 
 
 def main():
